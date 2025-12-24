@@ -12,7 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->alias([
+            'brand.auth' => \App\Http\Middleware\BrandAuth::class,
+            'product.auth' => \App\Http\Middleware\ProductAuth::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
