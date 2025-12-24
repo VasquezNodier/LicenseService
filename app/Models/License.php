@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class License extends Model
 {
     protected $fillable = ['license_key_id','product_id','status','expires_at', 'max_seats'];
     protected $casts = ['expires_at' => 'datetime'];
-    
+
     public function licenseKey(): BelongsTo
     {
         return $this->belongsTo(LicenseKey::class);
