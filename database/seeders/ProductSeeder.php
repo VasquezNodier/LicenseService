@@ -38,8 +38,8 @@ class ProductSeeder extends Seeder
         ]);
 
         $this->command?->info("=== PRODUCT: {$name} ({$code}) ===");
-        $this->command?->warn("API KEY: {$plainToken}");
-        $this->command?->line("Save this in your .env as: {$upperSlugName}_PRD_TOKEN={$plainToken}");
+        $this->command?->line("API KEY: {$plainToken}");
+        $this->command?->warn("Save this in your .env as: {$upperSlugName}_PRD_TOKEN={$plainToken}");
         $this->command?->line(str_repeat('-', 50));
     }
 }
