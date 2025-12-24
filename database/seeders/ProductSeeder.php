@@ -32,14 +32,14 @@ class ProductSeeder extends Seeder
             'brand_id' => $brandId,
             'code' => $code,
             'name' => $name,
-            'api_token_hash' => $hash,
+            'product_token_hash' => $hash,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
         $this->command?->info("=== PRODUCT: {$name} ({$code}) ===");
         $this->command?->warn("API KEY: {$plainToken}");
-        $this->command?->line("Save this in your .env as: {$upperSlugName}_API_KEY={$plainToken}");
+        $this->command?->line("Save this in your .env as: {$upperSlugName}_PRD_TOKEN={$plainToken}");
         $this->command?->line(str_repeat('-', 50));
     }
 }
