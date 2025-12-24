@@ -29,6 +29,9 @@ class LicenseKeyStatusController extends Controller
             'status' => $lic->status,
             'expires_at' => $lic->expires_at->toIso8601String(),
             'is_valid' => $lic->isValid(),
+            'max_seats' => $lic->max_seats,
+            'active_seats' => $lic->activeActivations()->count(),
+            'remaining_seats' => $lic->remainingSeats(),
         ]);
 
         return response()->json([

@@ -71,4 +71,14 @@ class License extends Model
         $this->status = 'cancelled';
         $this->save();
     }
+
+    public function remainingSeats(): ?int
+    {
+        if ($this->max_seats === null) {
+            return null;
+        }
+
+        $used = $this->activeActivations()->count();
+        return max($this->max_seats - $used, 0);
+    }
 }

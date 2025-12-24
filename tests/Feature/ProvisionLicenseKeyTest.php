@@ -32,6 +32,7 @@ it('provisions a license key and licenses for a brand', function () {
             [
                 'product_code' => $product->code,
                 'expires_at' => $expiresAt->toIso8601String(),
+                'max_seats' => 3,
             ],
         ],
     ], [
@@ -42,7 +43,8 @@ it('provisions a license key and licenses for a brand', function () {
         ->assertJsonPath('customer_email', 'user@example.com')
         ->assertJsonPath('licenses.0.product_code', $product->code)
         ->assertJsonPath('licenses.0.status', 'valid')
-        ->assertJsonPath('licenses.0.expires_at', $expiresAt->toIso8601String());
+        ->assertJsonPath('licenses.0.expires_at', $expiresAt->toIso8601String())
+        ->assertJsonPath('licenses.0.max_seats', 3);
 
     $this->assertDatabaseHas('license_keys', [
         'brand_id' => $brand->id,
@@ -83,6 +85,7 @@ it('reuses an existing license key and updates license data', function () {
         'product_id' => $product->id,
         'status' => 'valid',
         'expires_at' => Carbon::now()->addDays(2),
+        'max_seats' => 1,
     ]);
 
     $newExpiration = Carbon::now()->addMonths(2);
@@ -93,6 +96,7 @@ it('reuses an existing license key and updates license data', function () {
             [
                 'product_code' => $product->code,
                 'expires_at' => $newExpiration->toIso8601String(),
+                'max_seats' => 5,
             ],
         ],
     ], [
@@ -101,7 +105,8 @@ it('reuses an existing license key and updates license data', function () {
 
     $response->assertCreated()
         ->assertJsonPath('license_key', 'EXISTING-KEY-123')
-        ->assertJsonPath('licenses.0.expires_at', $newExpiration->toIso8601String());
+        ->assertJsonPath('licenses.0.expires_at', $newExpiration->toIso8601String())
+        ->assertJsonPath('licenses.0.max_seats', 5);
 
     $this->assertDatabaseCount('license_keys', 1);
     $this->assertDatabaseCount('licenses', 1);
@@ -109,6 +114,7 @@ it('reuses an existing license key and updates license data', function () {
     $license->refresh();
 
     expect($license->expires_at->toIso8601String())->toBe($newExpiration->toIso8601String());
+    expect($license->max_seats)->toBe(5);
 });
 
 it('fails when the product code is not found for the brand', function () {
@@ -125,6 +131,7 @@ it('fails when the product code is not found for the brand', function () {
             [
                 'product_code' => 'missing-code',
                 'expires_at' => Carbon::now()->addWeek()->toIso8601String(),
+                'max_seats' => 2,
             ],
         ],
     ], [

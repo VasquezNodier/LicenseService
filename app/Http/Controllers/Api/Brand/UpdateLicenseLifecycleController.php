@@ -44,6 +44,7 @@ class UpdateLicenseLifecycleController extends Controller
             'product_code' => $license->product->code,
             'status' => $license->status,
             'expires_at' => $license->expires_at->toIso8601String(),
+            'max_seats' => $license->max_seats,
         ]);
     }
 }

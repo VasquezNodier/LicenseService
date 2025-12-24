@@ -32,7 +32,12 @@ class ProvisionLicenseKeyController extends Controller
 
                 License::updateOrCreate(
                     ['license_key_id' => $licenseKey->id, 'product_id' => $product->id],
-                    ['status' => 'valid', 'expires_at' => Carbon::parse($l['expires_at'])]
+                    [
+                        'status' => 'valid', 
+                        'expires_at' => Carbon::parse($l['expires_at']),
+                        'max_seats' => $l['max_seats'] ?? null,
+                    ]
+                    
                 );
             }
 
@@ -45,6 +50,7 @@ class ProvisionLicenseKeyController extends Controller
                     'product_code' => $lic->product->code,
                     'status' => $lic->status,
                     'expires_at' => $lic->expires_at->toIso8601String(),
+                    'max_seats' => $lic->max_seats,
                 ]),
             ], 201);
         });

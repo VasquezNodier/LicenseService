@@ -14,7 +14,11 @@ it('accepts a valid payload', function () {
     $payload = [
         'customer_email' => 'User@example.com',
         'licenses' => [
-            ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString()],
+            [
+                'product_code' => 'rankmath-pro',
+                'expires_at' => now()->addDay()->toDateString(),
+                'max_seats' => 5,
+            ],
         ],
     ];
 
@@ -35,7 +39,7 @@ it('rejects invalid payloads', function (array $payload, array $expectedErrors) 
     'missing customer email' => [
         [
             'licenses' => [
-                ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString()],
+                ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString(), 'max_seats' => 1],
             ],
         ],
         ['customer_email'],
@@ -51,18 +55,27 @@ it('rejects invalid payloads', function (array $payload, array $expectedErrors) 
         [
             'customer_email' => 'user@example.com',
             'licenses' => [
-                ['product_code' => '', 'expires_at' => 'not-a-date'],
+                ['product_code' => '', 'expires_at' => 'not-a-date', 'max_seats' => 0],
             ],
         ],
-        ['licenses.0.product_code', 'licenses.0.expires_at'],
+        ['licenses.0.product_code', 'licenses.0.expires_at', 'licenses.0.max_seats'],
     ],
     'invalid email' => [
         [
             'customer_email' => 'userexample',
             'licenses' => [
-                ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString()],
+                ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString(), 'max_seats' => 2],
             ],
         ],
         ['customer_email'],
+    ],
+    'missing max seats' => [
+        [
+            'customer_email' => 'user@example.com',
+            'licenses' => [
+                ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString()],
+            ],
+        ],
+        ['licenses.0.max_seats'],
     ],
 ]);

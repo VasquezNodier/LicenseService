@@ -33,6 +33,7 @@ class ListLicensesByEmailController extends Controller
                     'product_code' => $lic->product->code,
                     'status' => $lic->status,
                     'expires_at' => $lic->expires_at->toIso8601String(),
+                    'max_seats' => $lic->max_seats,
                 ]),
             ]),
         ]);
