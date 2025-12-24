@@ -7,7 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Product extends Model
 {
-    protected $fillable = ['brand_id', 'code', 'name'];
+    protected $fillable = ['brand_id', 'code', 'name', 'product_token_hash'];
+    protected $hidden = ['product_token_hash'];
 
     public function brand(): BelongsTo
     {
