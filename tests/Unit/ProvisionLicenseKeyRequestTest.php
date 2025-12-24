@@ -27,6 +27,22 @@ it('accepts a valid payload', function () {
     expect($validator->passes())->toBeTrue();
 });
 
+it('accepts payload without max_seats', function () {
+    $payload = [
+        'customer_email' => 'user@example.com',
+        'licenses' => [
+            [
+                'product_code' => 'rankmath-pro',
+                'expires_at' => now()->addDay()->toDateString(),
+            ],
+        ],
+    ];
+
+    $validator = Validator::make($payload, (new ProvisionLicenseKeyRequest())->rules());
+
+    expect($validator->passes())->toBeTrue();
+});
+
 it('rejects invalid payloads', function (array $payload, array $expectedErrors) {
     $validator = Validator::make($payload, (new ProvisionLicenseKeyRequest())->rules());
 
@@ -68,14 +84,5 @@ it('rejects invalid payloads', function (array $payload, array $expectedErrors) 
             ],
         ],
         ['customer_email'],
-    ],
-    'missing max seats' => [
-        [
-            'customer_email' => 'user@example.com',
-            'licenses' => [
-                ['product_code' => 'rankmath-pro', 'expires_at' => now()->addDay()->toDateString()],
-            ],
-        ],
-        ['licenses.0.max_seats'],
     ],
 ]);

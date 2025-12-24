@@ -26,7 +26,7 @@ class ProvisionLicenseKeyRequest extends FormRequest
             'licenses' => ['required','array','min:1'],
             'licenses.*.product_code' => ['required','string'],
             'licenses.*.expires_at' => ['required','date'],
-            'licenses.*.max_seats' => ['required','integer','min:1'],
+            'licenses.*.max_seats' => ['nullable','integer','min:1'],
         ];
     }
 }
