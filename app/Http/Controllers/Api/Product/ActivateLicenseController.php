@@ -44,8 +44,10 @@ class ActivateLicenseController extends Controller
         }
 
         $activation = DB::transaction(function () use ($license, $request) {
-            if ($license->max_seats !== null) {
-                $activeSeats = $license->activeActivations()->count();
+            $lockedLicense = \App\Models\License::whereKey($license->id)->lockForUpdate()->first();
+
+            if ($lockedLicense->max_seats !== null) {
+                $activeSeats = $lockedLicense->activeActivations()->lockForUpdate()->count();
                 if ($activeSeats >= $license->max_seats) {
                     return null;
                 }
@@ -53,7 +55,7 @@ class ActivateLicenseController extends Controller
 
             return Activation::firstOrCreate(
                 [
-                    'license_id' => $license->id,
+                    'license_id' => $lockedLicense->id,
                     'instance_identifier' => $request->instance_identifier,
                     'revoked_at' => null,
                 ],
