@@ -7,6 +7,7 @@ use App\Http\Requests\ProvisionLicenseKeyRequest;
 use App\Models\License;
 use App\Models\LicenseKey;
 use App\Models\Product;
+use App\Support\DomainLog;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
@@ -20,18 +21,23 @@ class ProvisionLicenseKeyController extends Controller
     public function __invoke(ProvisionLicenseKeyRequest $request)
     {
 
+        $startedAt = microtime(true);
+
         $requestId = $request->attributes->get('request_id');
         $brand = $request->attributes->get('brand');
 
-        Log::info('Provision license request started', [
-            'request_id' => $requestId,
-            'brand_id' => $brand->id,
-            'customer_email' => $request->customer_email,
+        $customerEmail = strtolower((string) $request->customer_email);
+        $emailHash = hash('sha256', config('app.key').'|'.$customerEmail);
+        $productCodes = collect($request->licenses)->pluck('product_code')->values()->all();
+
+        DomainLog::info('license.provision.requested', [
+            'customer_email_hash' => $emailHash,
             'licenses_count' => count($request->licenses),
+            'product_codes' => $productCodes,
         ]);
 
         try {
-            return DB::transaction(function () use ($request, $brand, $requestId) {
+            $response = DB::transaction(function () use ($request, $brand, $requestId, $emailHash, $productCodes) {
 
                 $licenseKey = LicenseKey::firstOrCreate(
                     ['brand_id' => $brand->id, 'customer_email' => strtolower($request->customer_email)],
@@ -67,15 +73,25 @@ class ProvisionLicenseKeyController extends Controller
                     ]),
                 ], 201);
             });
-        } catch (HttpException $e) {
 
-            throw $e;
+            DomainLog::info('license.provision.succeeded', [
+                'result' => 'success',
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => $response->status(),
+            ]);
+
+            return $response;
 
         } catch (ModelNotFoundException $e) {
-            Log::warning('Product not found', [
-                'request_id' => $requestId,
-                'brand_id' => $brand->id ?? null,
+            DomainLog::warning('license.provision.rejected', [
+                'result' => 'error',
+                'reason' => 'product_not_found_for_brand',
+                'customer_email_hash' => $emailHash,
+                'product_codes' => $productCodes,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
                 'model' => $e->getModel(),
+                'error_class' => get_class($e),
+                'http_status' => 422,
             ]);
 
             return response()->json([
@@ -87,10 +103,14 @@ class ProvisionLicenseKeyController extends Controller
             ], 422);
         } catch (\Throwable $e) {
 
-            Log::error('Provision license failed', [
-                'request_id' => $requestId,
-                'brand_id' => $brand->id ?? null,
-                'error' => $e->getMessage(),
+            DomainLog::error('license.provision.failed', [
+                'result' => 'error',
+                'reason' => 'unhandled_exception',
+                'customer_email_hash' => $emailHash,
+                'product_codes' => $productCodes,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 500,
+                'error_class' => get_class($e),
             ]);
 
             return response()->json([

@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Brand;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class BrandAuth
@@ -29,6 +30,14 @@ class BrandAuth
         }
 
         $request->attributes->set('brand', $brand);
+
+        Log::shareContext([
+            'tenant' => [
+                'type' => 'brand',
+                'id' => $brand->id,
+            ],
+        ]);
+
         return $next($request);
     }
 }

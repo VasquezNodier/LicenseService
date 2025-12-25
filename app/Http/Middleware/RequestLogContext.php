@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
-class RequestIdMiddleware
+class RequestLogContext
 {
     /**
      * Handle an incoming request.
@@ -23,6 +23,12 @@ class RequestIdMiddleware
 
         Log::withContext([
             'request_id' => $requestId,
+            'http_method' => $request->method(),
+            'http_path' => $request->path(),
+            'actor' => [
+                'ip'      => $request->ip(),
+                'ua'      => substr((string) $request->userAgent(), 0, 180),
+            ],
         ]);
 
         /** @var \Symfony\Component\HttpFoundation\Response $response */

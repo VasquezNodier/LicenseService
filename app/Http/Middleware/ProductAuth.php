@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Product;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class ProductAuth
@@ -31,6 +32,14 @@ class ProductAuth
         }
 
         $request->attributes->set('product', $product);
+
+        Log::shareContext([
+            'tenant' => [
+                'type' => 'product',
+                'id' => $product->id,
+            ],
+        ]);
+
         return $next($request);
     }
 }

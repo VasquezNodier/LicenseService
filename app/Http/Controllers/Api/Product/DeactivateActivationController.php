@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\Product;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DeactivateActivationRequest;
 use App\Models\Activation;
+use App\Models\License;
 use App\Models\LicenseKey;
+use App\Support\DomainLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +16,7 @@ class DeactivateActivationController extends Controller
 {
     public function __invoke(DeactivateActivationRequest $request)
     {
+        $startedAt = microtime(true);
         $requestId = $request->attributes->get('request_id');
         $product = $request->attributes->get('product');
         $productCode = $request->product_code;
@@ -21,24 +24,25 @@ class DeactivateActivationController extends Controller
         $instance = $request->instance_identifier;
 
         // avoid log identifier
-        $instanceHash = hash('sha256', (string) $instance);
+        $licenseKeyHash = hash('sha256', config('app.key').'|'.$licenseKeyValue);
+        $instanceHash   = hash('sha256', config('app.key').'|'.$instance);
 
-        Log::info('license.deactivate.started', [
-            'request_id' => $requestId,
-            'product_id' => $product->id ?? null,
+        DomainLog::info('license.activation.deactivate.requested', [
+            'license_key_hash' => $licenseKeyHash,
             'product_code' => $productCode,
-            'instance_type' => $request->instance_type ?? null,
-            'instance_hash' => $instanceHash,
+            'instance_type' => (string) $request->instance_type,
+            'instance_identifier_hash' => $instanceHash,
         ]);
 
         try {
 
             if ($product && $product->code !== $request->product_code) {
-                Log::warning('license.deactivate.forbidden.product_token_mismatch', [
-                    'request_id' => $requestId,
-                    'product_id' => $product->id,
+                DomainLog::warning('license.activation.deactivate.rejected', [
+                    'reason' => 'product_token_mismatch',
                     'token_product_code' => $product->code,
                     'requested_product_code' => $productCode,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 403,
                 ]);
 
                 return response()->json([
@@ -48,14 +52,18 @@ class DeactivateActivationController extends Controller
                 ], 403);
             }
 
-            $licenseKey = LicenseKey::where('key', $licenseKeyValue)
+            $licenseKey = LicenseKey::query()
+                ->where('key', $licenseKeyValue)
                 ->with(['licenses.product'])
                 ->first();
 
             if (!$licenseKey) {
-                Log::info('license.deactivate.invalid.license_key_not_found', [
-                    'request_id' => $requestId,
+                DomainLog::info('license.activation.deactivate.rejected', [
+                    'reason' => 'license_key_not_found',
+                    'license_key_hash' => $licenseKeyHash,
                     'product_code' => $productCode,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
                 ]);
 
                 return response()->json([
@@ -66,11 +74,11 @@ class DeactivateActivationController extends Controller
             }
 
             if ($product && $licenseKey->brand_id !== $product->brand_id) {
-                Log::warning('license.deactivate.forbidden.license_key_not_for_brand', [
-                    'request_id' => $requestId,
+                DomainLog::warning('license.activation.deactivate.rejected', [
+                    'reason' => 'license_key_not_for_brand',
                     'license_key_id' => $licenseKey->id,
-                    'license_key_brand_id' => $licenseKey->brand_id,
-                    'product_brand_id' => $product->brand_id,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 403,
                 ]);
 
                 return response()->json([
@@ -84,10 +92,12 @@ class DeactivateActivationController extends Controller
                 ->first(fn($l) => $l->product->code === $request->product_code);
 
             if (!$license) {
-                Log::info('license.deactivate.invalid.no_entitlement_for_product', [
-                    'request_id' => $requestId,
+                DomainLog::info('license.activation.deactivate.rejected', [
+                    'reason' => 'no_entitlement_for_product',
                     'license_key_id' => $licenseKey->id,
                     'product_code' => $productCode,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
                 ]);
 
                 return response()->json([
@@ -97,53 +107,70 @@ class DeactivateActivationController extends Controller
                 ], 200);
             }
 
-            $deactivated = DB::transaction(function () use ($license, $instance) {
+            $result = DB::transaction(function () use ($license, $instance) {
+                $locked = License::query()
+                    ->whereKey($license->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
                 $activation = Activation::query()
                     ->where('license_id', $license->id)
                     ->where('instance_identifier', $instance)
                     ->whereNull('revoked_at')
-//                    ->lockForUpdate()
+                    ->lockForUpdate()
                     ->first();
 
                 if (!$activation) {
-                    return false; // idempotent
+                    return ['deactivated' => false, 'activation_id' => null];
                 }
 
                 $activation->revoked_at = now();
                 $activation->save();
 
-                return true;
+                return ['deactivated' => true, 'activation_id' => $activation->id];
             });
 
-            if ($deactivated) {
-                Log::info('license.deactivation', [
+            if (!$result['deactivated']) {
+                DomainLog::info('license.activation.deactivate.idempotent', [
+                    'reason' => 'no_active_activation',
                     'license_id' => $license->id,
-                    'license_key' => $licenseKey->key,
-                    'product_code' => $request->product_code,
-                    'instance_identifier' => $instance,
-                ]);
-            } else {
-                Log::info('license.deactivate.idempotent.no_active_activation', [
-                    'request_id' => $requestId,
-                    'license_id' => $license->id,
+                    'license_key_id' => $licenseKey->id,
                     'product_code' => $productCode,
-                    'instance_hash' => $instanceHash,
+                    'instance_identifier_hash' => $instanceHash,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
                 ]);
+
+                return response()->json([
+                    'deactivated' => false, // idempotent: nothing to do
+                    'reason' => 'no_active_activation',
+                    'request_id' => $requestId,
+                ], 200);
             }
 
+            DomainLog::info('license.activation.deactivate.succeeded', [
+                'activation_id' => $result['activation_id'],
+                'license_id' => $license->id,
+                'license_key_id' => $licenseKey->id,
+                'product_code' => $productCode,
+                'instance_identifier_hash' => $instanceHash,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 200,
+            ]);
+
             return response()->json([
-                'deactivated' => $deactivated,
-                'license_key' => $licenseKey->key,
-                'product_code' => $request->product_code,
-                'instance_identifier' => $instance,
+                'deactivated' => true,
                 'request_id' => $requestId,
             ]);
         } catch (\Throwable $e) {
-            Log::error('license.deactivate.failed', [
-                'request_id' => $requestId,
-                'product_id' => $product->id ?? null,
+            DomainLog::error('license.activation.deactivate.failed', [
+                'reason' => 'unhandled_exception',
                 'product_code' => $productCode,
-                'exception' => $e->getMessage(),
+                'license_key_hash' => $licenseKeyHash,
+                'instance_identifier_hash' => $instanceHash,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 500,
+                'error_class' => get_class($e),
             ]);
 
             return response()->json([

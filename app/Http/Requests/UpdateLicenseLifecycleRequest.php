@@ -23,7 +23,7 @@ class UpdateLicenseLifecycleRequest extends FormRequest
     {
         return [
             'action' => ['required', 'in:renew,suspend,resume,cancel'],
-            'expires_at' => ['required_if:action,renew', 'date'],
+            'expires_at' => ['required_if:action,renew', 'date', 'after:today'],
         ];
     }
 }

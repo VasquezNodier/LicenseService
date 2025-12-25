@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\Product;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ActivateLicenseRequest;
 use App\Models\Activation;
+use App\Models\License;
 use App\Models\LicenseKey;
+use App\Support\DomainLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,25 +16,31 @@ class ActivateLicenseController extends Controller
 {
     public function __invoke(ActivateLicenseRequest $request)
     {
+        $startedAt = microtime(true);
+
         $requestId = $request->attributes->get('request_id');
         $product = $request->attributes->get('product');
-        $licenseKeyValue = $request->license_key;
-        $productCode = $request->product_code;
 
-        Log::info('License activation started', [
-            'request_id' => $requestId,
-            'product_id' => $product->id ?? null,
+        $licenseKeyValue = (string) $request->license_key;
+        $licenseKeyHash  = hash('sha256', config('app.key').'|'.$licenseKeyValue);
+
+        $productCode = (string) $request->product_code;
+
+        DomainLog::info('license.activation.requested', [
+            'license_key_hash' => $licenseKeyHash,
             'product_code' => $productCode,
-            'instance_type' => $request->instance_type,
+            'instance_type' => (string) $request->instance_type,
         ]);
 
         try {
             if ($product && $product->code !== $request->product_code) {
-                Log::warning('License activation forbidden due to product_token_mismatch', [
-                    'request_id' => $requestId,
-                    'product_id' => $product->id,
+
+                DomainLog::warning('license.activation.rejected', [
+                    'reason' => 'product_token_mismatch',
                     'token_product_code' => $product->code,
                     'requested_product_code' => $productCode,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 403,
                 ]);
 
                 return response()->json([
@@ -42,11 +50,19 @@ class ActivateLicenseController extends Controller
                 ], 403);
             }
 
-            $licenseKey = LicenseKey::where('key', $licenseKeyValue)
+            $licenseKey = LicenseKey::query()
+                ->where('key', $licenseKeyValue)
                 ->with(['licenses.product'])
                 ->first();
 
             if (!$licenseKey) {
+                DomainLog::info('license.activation.rejected', [
+                    'reason' => 'license_key_not_found',
+                    'license_key_hash' => $licenseKeyHash,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
+                ]);
+
                 return response()->json([
                     'valid' => false,
                     'reason' => 'license_key_not_found',
@@ -55,11 +71,11 @@ class ActivateLicenseController extends Controller
             }
 
             if ($product && $licenseKey->brand_id !== $product->brand_id) {
-                Log::warning('License activation forbidden due to license key not for brand', [
-                    'request_id' => $requestId,
+                DomainLog::warning('license.activation.rejected', [
+                    'reason' => 'license_key_not_for_brand',
                     'license_key_id' => $licenseKey->id,
-                    'license_key_brand_id' => $licenseKey->brand_id,
-                    'product_brand_id' => $product->brand_id,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 403,
                 ]);
 
                 return response()->json([
@@ -73,47 +89,57 @@ class ActivateLicenseController extends Controller
                 ->first(fn($l) => $l->product->code === $request->product_code);
 
             if (!$license) {
-                Log::info('License activation invalid due to no entitlement for product', [
-                    'request_id' => $requestId,
+                DomainLog::info('license.activation.rejected', [
+                    'reason' => 'no_entitlement_for_product',
                     'license_key_id' => $licenseKey->id,
                     'product_code' => $productCode,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
                 ]);
 
                 return response()->json([
                     'valid' => false,
-                    'reason' => 'no entitlement for product',
+                    'reason' => 'no_entitlement_for_product',
                     'request_id' => $requestId,
                 ], 200);
             }
 
             if (!$license->isValid()) {
-                Log::info('License activation invalid due to license not valid', [
-                    'request_id' => $requestId,
+                DomainLog::info('license.activation.rejected', [
+                    'reason' => 'license_not_valid',
                     'license_id' => $license->id,
                     'status' => $license->status,
                     'expires_at' => optional($license->expires_at)?->toIso8601String(),
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
                 ]);
 
                 return response()->json([
                     'valid' => false,
-                    'reason' => 'license not valid',
+                    'reason' => 'license_not_valid',
                     'request_id' => $requestId,
                 ], 200);
             }
 
-            $activation = DB::transaction(function () use ($license, $request) {
-                $lockedLicense = \App\Models\License::whereKey($license->id)->lockForUpdate()->first();
+            $result  = DB::transaction(function () use ($license, $request) {
+                $locked = License::query()
+                    ->whereKey($license->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-                if ($lockedLicense->max_seats !== null) {
-                    $activeSeats = $lockedLicense->activeActivations()->lockForUpdate()->count();
-                    if ($activeSeats >= $license->max_seats) {
-                        return ['activation' => null, 'reason' => 'max_seats_reached'];
+                if ($locked->max_seats !== null) {
+
+//                    $activeSeats = $locked->activeActivations()->lockForUpdate()->count();
+                    $activeSeats = $locked->activeActivations()->count();
+
+                    if ($activeSeats >= $locked->max_seats) {
+                        return ['activation' => null, 'reason' => 'max_seats_reached', 'active_seats' => $activeSeats];
                     }
                 }
 
                 $activation = Activation::firstOrCreate(
                     [
-                        'license_id' => $lockedLicense->id,
+                        'license_id' => $locked->id,
                         'instance_identifier' => $request->instance_identifier,
                         'revoked_at' => null,
                     ],
@@ -126,13 +152,13 @@ class ActivateLicenseController extends Controller
                 return ['activation' => $activation, 'reason' => null];
             });
 
-            if ($activation === null) {
-                $reason = $activation['reason'] ?? 'max_seats_reached';
-
-                Log::info('License activation invalid.' . $reason, [
-                    'request_id' => $requestId,
+            if ($result['activation'] === null) {
+                DomainLog::info('license.activation.rejected', [
+                    'reason' => 'max_seats_reached',
                     'license_id' => $license->id,
                     'max_seats' => $license->max_seats,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 200,
                 ]);
 
                 return response()->json([
@@ -143,12 +169,16 @@ class ActivateLicenseController extends Controller
                 ], 200);
             }
 
-            Log::info('license activation', [
+            $activation = $result['activation'];
+
+            DomainLog::info('license.activation.succeeded', [
+                'activation_id' => $activation->id,
+                'license_key_id' => $licenseKey->id,
                 'license_id' => $license->id,
-                'license_key' => $licenseKey->key,
-                'product_code' => $request->product_code,
-                'instance_identifier' => $request->instance_identifier,
-                'request_id' => $requestId,
+                'product_code' => $productCode,
+                'instance_identifier_hash' => hash('sha256', config('app.key').'|'.(string) $request->instance_identifier),
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 200,
             ]);
 
             $licenses = $licenseKey->licenses;
@@ -156,9 +186,9 @@ class ActivateLicenseController extends Controller
             return response()->json([
                 'valid' => true,
                 'license_key' => $licenseKey->key,
-                'product_code' => $request->product_code,
+                'product_code' => $productCode,
                 'expires_at' => $license->expires_at->toIso8601String(),
-                'entitlements' => $licenses->map(fn($lic) => [
+                'entitlements' => $licenses->map(fn ($lic) => [
                     'product_code' => $lic->product->code,
                     'status' => $lic->status,
                     'expires_at' => $lic->expires_at->toIso8601String(),
@@ -166,13 +196,15 @@ class ActivateLicenseController extends Controller
                     'active_seats' => $lic->activeActivations()->count(),
                     'remaining_seats' => $lic->remainingSeats(),
                 ]),
-            ]);
+            ], 200);
         } catch (\Throwable $e) {
-            Log::error('License activation failed', [
-                'request_id' => $requestId,
-                'product_id' => $product->id ?? null,
+            DomainLog::error('license.activation.failed', [
+                'reason' => 'unhandled_exception',
                 'product_code' => $productCode,
-                'exception' => $e->getMessage(),
+                'license_key_hash' => $licenseKeyHash,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 500,
+                'error_class' => get_class($e),
             ]);
 
             return response()->json([

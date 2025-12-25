@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Brand;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UpdateLicenseLifecycleRequest;
 use App\Models\License;
+use App\Support\DomainLog;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,15 +16,16 @@ class UpdateLicenseLifecycleController extends Controller
 {
     public function __invoke(UpdateLicenseLifecycleRequest $request, int $license_id)
     {
+        $startedAt = microtime(true);
         $requestId = $request->attributes->get('request_id');
         $brand = $request->attributes->get('brand');
         $action = $request->string('action')->toString();
+        $expiresAt = $request->date('expires_at');
 
-        Log::info('Update license lifecycle started', [
-            'request_id' => $requestId,
-            'brand_id' => $brand->id ?? null,
+        DomainLog::info('license.lifecycle.update.requested', [
             'license_id' => $license_id,
             'action' => $action,
+            'expires_at' => $expiresAt?->toIso8601String(),
         ]);
 
         try {
@@ -35,13 +37,15 @@ class UpdateLicenseLifecycleController extends Controller
 
             // tenant boundary: the brand of license_key must be the same brand auth
             if ($license->licenseKey->brand_id !== $brand->id) {
-                Log::warning('Update license lifecycle forbidden (tenant boundary)', [
-                    'request_id' => $requestId,
-                    'brand_id' => $brand->id ?? null,
+                DomainLog::warning('license.lifecycle.update.rejected', [
+                    'reason' => 'tenant_boundary_violation',
                     'license_id' => $license_id,
-                    'license_brand_id' => $license->licenseKey->brand_id ?? null,
                     'action' => $action,
+                    'license_brand_id' => $license->licenseKey?->brand_id,
+                    'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'http_status' => 403,
                 ]);
+
                 return response()->json([
                     'message' => 'Forbidden',
                     'request_id' => $requestId,
@@ -60,6 +64,15 @@ class UpdateLicenseLifecycleController extends Controller
 
             $license->refresh();
 
+            DomainLog::info('license.lifecycle.update.succeeded', [
+                'license_id' => $license->id,
+                'action' => $action,
+                'status' => $license->status,
+                'expires_at' => $license->expires_at?->toIso8601String(),
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 200,
+            ]);
+
             return response()->json([
                 'license_id' => $license->id,
                 'product_code' => $license->product->code,
@@ -67,7 +80,8 @@ class UpdateLicenseLifecycleController extends Controller
                 'expires_at' => $license->expires_at->toIso8601String(),
                 'max_seats' => $license->max_seats,
                 'request_id' => $requestId,
-            ]);
+            ], 200);
+
         } catch (ModelNotFoundException $e) {
             Log::warning('License not found', [
                 'request_id' => $requestId,
@@ -81,12 +95,13 @@ class UpdateLicenseLifecycleController extends Controller
             ], 404);
 
         } catch (ValidationException $e) {
-            // acción inválida u otros errores de validación "esperables"
-            Log::warning('Update license lifecycle validation failed', [
-                'request_id' => $requestId,
-                'brand_id' => $brand->id ?? null,
+
+            DomainLog::warning('license.lifecycle.update.rejected', [
+                'reason' => 'license_not_found',
                 'license_id' => $license_id,
-                'errors' => $e->errors(),
+                'action' => $action,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 404,
             ]);
 
             return response()->json([
@@ -96,12 +111,13 @@ class UpdateLicenseLifecycleController extends Controller
             ], 422);
 
         } catch (\Throwable $e) {
-            Log::error('Update license lifecycle failed', [
-                'request_id' => $requestId,
-                'brand_id' => $brand->id ?? null,
+            DomainLog::error('license.lifecycle.update.failed', [
+                'reason' => 'unhandled_exception',
                 'license_id' => $license_id,
                 'action' => $action,
-                'exception' => $e->getMessage(),
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'http_status' => 500,
+                'error_class' => get_class($e),
             ]);
 
             return response()->json([
