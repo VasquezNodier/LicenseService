@@ -4,6 +4,8 @@ use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
 use Monolog\Processor\PsrLogMessageProcessor;
+use Monolog\Formatter\JsonFormatter;
+
 
 return [
 
@@ -125,6 +127,22 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
+        ],
+
+        'json' => [
+            'driver' => 'monolog',
+            'level' => env('LOG_LEVEL', 'info'),
+            'handler' => StreamHandler::class,
+            'handler_with' => [
+                'stream' => env('LOG_STREAM', 'php://stdout'),
+            ],
+            'formatter' => JsonFormatter::class,
+            'formatter_with' => [
+                // 1 = JSON_UNESCAPED_SLASHES, 64 = JSON_UNESCAPED_UNICODE, 256 = JSON_PRESERVE_ZERO_FRACTION
+                'batchMode' => JsonFormatter::BATCH_MODE_JSON,
+                'appendNewline' => true,
+            ],
+            'processors' => [PsrLogMessageProcessor::class],
         ],
 
     ],
