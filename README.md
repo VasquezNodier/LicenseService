@@ -36,6 +36,8 @@ It allows multiple brands to provision, manage, and validate licenses centrally 
 
 #### Start the full stack
 
+- Before build, paste the .env sent by email in project root.
+
 ```bash
 docker compose up --build
 ```
@@ -77,7 +79,7 @@ All Laravel logs are emitted in **JSON format** to `stdout` to facilitate observ
 
 ```bash
 composer install
-cp .env.example .env
+cp .env.example .env # Use the .env provided
 php artisan key:generate
 php artisan migrate
 php artisan serve --port=8000
