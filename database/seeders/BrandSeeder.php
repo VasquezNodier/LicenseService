@@ -38,9 +38,9 @@ class BrandSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        $this->command?->info("=== BRAND: {$name} ===");
-        $this->command?->line("API KEY: {$plainToken}");
-        $this->command?->warn("Save this in your .env as: {$upperSlugName}_BR_TOKEN={$plainToken}");
-        $this->command?->line(str_repeat('-', 50));
+//        $this->command?->info("=== BRAND: {$name} ===");
+//        $this->command?->line("API KEY: {$plainToken}");
+//        $this->command?->warn("Save this in your .env as: {$upperSlugName}_BR_TOKEN={$plainToken}");
+//        $this->command?->line(str_repeat('-', 50));
     }
 }

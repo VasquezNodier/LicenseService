@@ -37,9 +37,9 @@ class ProductSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        $this->command?->info("=== PRODUCT: {$name} ({$code}) ===");
-        $this->command?->line("API KEY: {$plainToken}");
-        $this->command?->warn("Save this in your .env as: {$upperSlugName}_PRD_TOKEN={$plainToken}");
-        $this->command?->line(str_repeat('-', 50));
+//        $this->command?->info("=== PRODUCT: {$name} ({$code}) ===");
+//        $this->command?->line("API KEY: {$plainToken}");
+//        $this->command?->warn("Save this in your .env as: {$upperSlugName}_PRD_TOKEN={$plainToken}");
+//        $this->command?->line(str_repeat('-', 50));
     }
 }
