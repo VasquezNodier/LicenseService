@@ -26,7 +26,7 @@ class BrandSeeder extends Seeder
         $lowerSlugName = Str::lower($slugName);
         $upperSlugName = Str::upper($slugName);
 
-        $plainToken = 'br_' . $lowerSlugName . '_' . Str::random(40);
+        $plainToken = 'br_' . $lowerSlugName . '_secret_token';
 
         $hash = hash('sha256', $plainToken);
 

@@ -25,7 +25,7 @@ class ProductSeeder extends Seeder
         $lowerSlugName = Str::lower($slugName);
         $upperSlugName = Str::upper($slugName);
 
-        $plainToken = 'prd_' . $lowerSlugName . '_' . Str::random(32);
+        $plainToken = 'prd_' . $lowerSlugName . '_secret_token';
         $hash = hash('sha256', $plainToken);
 
         DB::table('products')->insert([
