@@ -23,6 +23,8 @@ class ProductAuth
         }
 
         $hash = hash('sha256', $token);
+        $keyHashPrefix = substr($hash, 0, 8);
+
         $product = Product::with('brand')
             ->where('product_token_hash', $hash)
             ->first();
@@ -33,10 +35,11 @@ class ProductAuth
 
         $request->attributes->set('product', $product);
 
-        Log::shareContext([
+        Log::withContext([
             'tenant' => [
                 'type' => 'product',
                 'id' => $product->id,
+                'key_hash_prefix' => $keyHashPrefix,
             ],
         ]);
 

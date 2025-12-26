@@ -22,6 +22,7 @@ class BrandAuth
         if(!$key) return response()->json(['message' => 'Missing X-Brand-Key'], 401);
 
         $hashedKey = hash('sha256', $key);
+        $keyHashPrefix = substr($hashedKey, 0, 8);
 
         $brand = Brand::where('api_key_hash', $hashedKey)->first();
 
@@ -31,10 +32,11 @@ class BrandAuth
 
         $request->attributes->set('brand', $brand);
 
-        Log::shareContext([
+        Log::withContext([
             'tenant' => [
                 'type' => 'brand',
                 'id' => $brand->id,
+                'key_hash_prefix' => $keyHashPrefix,
             ],
         ]);
 
