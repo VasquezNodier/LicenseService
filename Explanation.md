@@ -27,6 +27,94 @@ Non-goals:
 -   **APIs:** brand-side create brand/product, provision key + licenses, change lifecycle, list licenses by email (ecosystem only). Product-side activate, check status, deactivate instance.
 -   **Seat concurrency:** activation uses transaction + `lockForUpdate` on license and active-seat count; uniqueness constraint per instance keeps idempotency.
 
+## Technical Architecture (Operability and Scalability)
+
+```
+[Brand systems / Product clients]
+        |  (X-Brand-Key / X-Product-Token)
+        v
+[Laravel API layer: validation + tenancy guard]
+        |-- Observability (structured logs, metricas, traces)
+        v
+[Domain services / Controllers]
+        |-- Future Cache 
+        |-- Furture Events/Queues (audit, notification, webhooks)
+        v
+[PostgreSQL]  <-- indexes per brand/email/product, unique keys
+```
+
+- **Resilience:** Critical flows executed within database transactions; `lockForUpdate` used for seat enforcement; idempotency applied to activations and provisioning via `firstOrCreate` / `updateOrCreate`.
+- **Scalability:** Logical partitioning by `brand_id` (with future brand-based sharding if growth requires it); indexes on `customer_email`, `license_key_id` + `product_id`, and `revoked_at` for activations.
+- **Operability:** Health/readiness endpoints; structured logs with `request_id` and brand/product context; activation, error, and latency metrics.
+
+## 6. Flows (core stories)
+
+### 6.1 US1 Provision flow (sequence)
+
+Brand system -> License Service (`POST /api/brand/license-keys`):
+
+-   Authenticate brand via X-Brand-Key
+-   Find or create LicenseKey for (brand_id, customer_email)
+-   For each requested product_code:
+    -   validate product belongs to brand
+    -   upsert License (status/expires_at)
+-   Return license_key string and licenses
+
+
+### 6.2 US2 Lifecycle update flow
+
+Brand system -> License Service: (`PATCH /api/brand/licenses/{id}`)
+
+-   Authenticate brand via X-Brand-Key
+-   Load License by id + verify tenant boundary (license_key.brand_id == brand.id)
+-   Apply lifecycle action:
+    -   renew: update expires_at (cannot renew cancelled)
+    -   suspend: status -> suspended
+    -   resume: suspended -> valid
+    -   cancel: status -> cancelled
+-   Return normalized license view
+
+### 6.3 US3 Activate flow
+
+Product -> License Service: (`POST /api/product/activate`)
+
+-   Validate product token
+-   Load LicenseKey by key
+-   Find License for product_code
+-   Validate license status + expiration
+-   Upsert Activation (idempotent):
+    -   unique constraint on (license_id, instance_identifier, revoked_at)
+    -   active activation uses revoked_at = NULL
+-   Return activation decision and core fields
+
+### 6.4 US4 Check flow
+
+Product -> License Service: (`GET /api/product/license-keys/{key}`)
+
+-   Validate product token
+-   Load LicenseKey by key
+-   Compute entitlements (status/expiration/valid per product)
+-   Return aggregated status
+
+### 6.5 US5 Deactivate flow
+
+Product -> License Service: (`DELETE /api/product/deactivate`)
+
+-   Validate product token
+-   Load LicenseKey by key
+-   Find License for product_code
+-   Find active Activation by (license_id, instance_identifier, revoked_at IS NULL)
+-   If found: set revoked_at = now()
+-   If not found: return deactivated=false (idempotent)
+
+### 6.4 US6 List-by-email flow
+
+Brand admin -> License Service:  (`GET /api/brand/licenses?email=`)
+
+-   authorize ecosystem role
+-   query all license_keys by email across brands
+-   return grouped view
+
 ## Domain model
 
 -   Brand(id, name, api_key_hash, role)
